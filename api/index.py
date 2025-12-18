@@ -5,6 +5,9 @@ from user_agent import generate_user_agent
 from http.server import BaseHTTPRequestHandler
 import json
 from urllib.parse import urlparse, parse_qs
+import os
+
+PROVIDER_URL = os.environ.get("PROVIDER_URL")
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -21,6 +24,16 @@ class handler(BaseHTTPRequestHandler):
             }).encode())
             return
 
+        if not PROVIDER_URL:
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "error",
+                "message": "Provider not configured"
+            }).encode())
+            return
+
         try:
             headers = {
                 "User-Agent": generate_user_agent(),
@@ -29,20 +42,17 @@ class handler(BaseHTTPRequestHandler):
             }
 
             encoded_url = requests.utils.quote(url.strip(), safe="")
-            target_url = (
-                "https://snapdownloader.com/tools/"
-                f"instagram-reels-downloader/download?url={encoded_url}"
-            )
+            target_url = f"{PROVIDER_URL}?url={encoded_url}"
 
             r = requests.get(target_url, headers=headers, timeout=20)
             if r.status_code != 200:
-                raise Exception("Failed request")
+                raise Exception("Request failed")
 
             soup = BeautifulSoup(r.text, "html.parser")
             video_tag = soup.find("a", href=lambda x: x and ".mp4" in x.lower())
 
             if not video_tag:
-                raise Exception("Reel not found or private")
+                raise Exception("Media not found or private")
 
             video = html.unescape(video_tag["href"]).strip()
 
