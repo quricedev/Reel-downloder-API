@@ -133,7 +133,7 @@ class handler(BaseHTTPRequestHandler):
                     "is_business_account": bool(profile.get("is_business")),
                     "is_professional_account": bool(profile.get("is_professional_account")),
                     "fbid": profile.get("fbid"),
-                    "account_created_year": detect_year(profile.get("id")
+                    "account_created_year": detect_year(profile.get("id")),
                 },
                 "owner": "@UseSir / @OverShade"
             }
