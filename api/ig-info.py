@@ -123,7 +123,8 @@ class handler(BaseHTTPRequestHandler):
                     "username": profile.get("username"),
                     "full_name": profile.get("full_name"),
                     "bio": profile.get("biography"),
-                    "external_url": profile.get("external_url"),
+                    "external_url": profile.get("external_url") or None,
+                    "direct_link": f"https://www.instagram.com/{profile.get('username')}",
                     "followers": followers,
                     "following": following,
                     "posts": posts,
@@ -132,8 +133,13 @@ class handler(BaseHTTPRequestHandler):
                     "is_verified": bool(profile.get("is_verified")),
                     "is_business_account": bool(profile.get("is_business")),
                     "is_professional_account": bool(profile.get("is_professional_account")),
+                    "is_new_to_instagram": bool(profile.get("is_new_to_instagram")),
+                    "is_eligible_for_meta_verified_label": bool(
+                        profile.get("is_eligible_for_ig_meta_verified_label")
+                        or profile.get("is_eligible_for_meta_verified_label")
+                    ),
                     "fbid": profile.get("fbid"),
-                    "account_created_year": detect_year(profile.get("id")),
+                    "account_created_year": detect_year(profile.get("id"))
                 },
                 "owner": "@UseSir / @OverShade"
             }
