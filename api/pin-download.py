@@ -11,6 +11,15 @@ import os
 PIN_PROVIDER_URL = os.environ.get("PIN_PROVIDER_URL")
 KEYS_FILE = "pinkeys.txt"
 
+PINIMG_DOMAINS = ("pinimg.com", "v.pinimg.com", "i.pinimg.com")
+
+def is_real_media(url):
+    return (
+        url
+        and any(d in url for d in PINIMG_DOMAINS)
+        and any(ext in url.lower() for ext in [".jpg", ".jpeg", ".png", ".webp", ".mp4"])
+    )
+
 def is_key_valid(api_key):
     try:
         with open(KEYS_FILE, "r") as f:
@@ -65,40 +74,37 @@ class handler(BaseHTTPRequestHandler):
             r.raise_for_status()
             html = r.text
 
-            if "API Not Work" in html or "Invalid" in html:
+            if any(x in html.lower() for x in ["api not work", "invalid", "captcha"]):
                 raise Exception("Invalid Pinterest URL or service down")
 
             soup = BeautifulSoup(html, "html.parser")
             video_link = None
             photo_link = None
 
-            for btn in soup.find_all("a", class_=re.compile(r"btn.*primary")):
-                href = btn.get("href", "")
-                text = btn.get_text(strip=True).lower()
-                if href.startswith(("https://v1.pinimg.com", "https://v.pinimg.com")):
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                text = a.get_text(strip=True).lower()
+                if is_real_media(href) and href.lower().endswith(".mp4"):
                     if any(q in text for q in ["1080", "original", "hd"]):
                         video_link = href
                         break
-                    elif "720" in text and not video_link:
-                        video_link = href
-                    elif not video_link:
+                    if not video_link:
                         video_link = href
 
-            img_btn = soup.find("a", string=re.compile(r"Download.*Image", re.I))
-            if img_btn and img_btn.get("href", "").startswith("http"):
-                photo_link = img_btn["href"]
-            else:
-                for a in soup.find_all("a", href=re.compile(r"pinimg\.com.*originals")):
-                    photo_link = a["href"]
-                    break
+            if not video_link:
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    if is_real_media(href) and not href.lower().endswith(".mp4"):
+                        photo_link = href
+                        break
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
 
-            if video_link:
+            if video_link and is_real_media(video_link):
                 self.wfile.write(json.dumps({"status": "success", "video": video_link, "dev": "@UseSir"}).encode())
-            elif photo_link:
+            elif photo_link and is_real_media(photo_link):
                 self.wfile.write(json.dumps({"status": "success", "photo": photo_link, "dev": "@UseSir"}).encode())
             else:
                 self.wfile.write(json.dumps({"status": "error", "message": "No media found"}).encode())
