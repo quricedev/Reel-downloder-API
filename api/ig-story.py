@@ -90,6 +90,9 @@ class handler(BaseHTTPRequestHandler):
 
             paths = list(dict.fromkeys(paths))
 
+            host = self.headers.get("host")
+            base_url = f"https://{host}"
+
             stories = []
             for i, path in enumerate(paths, start=1):
                 full_media_url = f"{MEDIA_BASE}{path}"
@@ -98,8 +101,7 @@ class handler(BaseHTTPRequestHandler):
                 stories.append({
                     "index": i,
                     "type": "video",
-                    "download_url": f"/api/ig-story?link={token}",
-                    "source": "instagram_story"
+                    "download_url": f"{base_url}/api/ig-story?link={token}"
                 })
 
             response = {
