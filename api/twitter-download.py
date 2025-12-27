@@ -10,7 +10,7 @@ from datetime import datetime
 from user_agent import generate_user_agent
 
 PROVIDER_URL = os.environ.get("TWITTER_PROVIDER")
-KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "twitterkey.txt")
+KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "twitterapikey.txt")
 
 def is_key_valid(api_key):
     try:
