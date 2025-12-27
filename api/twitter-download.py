@@ -10,14 +10,14 @@ from datetime import datetime
 from user_agent import generate_user_agent
 
 PROVIDER_URL = os.environ.get("TWITTER_PROVIDER")
-KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "twitterapikey.txt")
+KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "twitterkey.txt")
 
 def is_key_valid(api_key):
     try:
         with open(KEYS_FILE, "r") as f:
             for line in f:
                 line = line.strip()
-                if not line or ":" not in line:
+                if ":" not in line:
                     continue
                 key, expiry = line.split(":", 1)
                 if key == api_key:
@@ -33,51 +33,47 @@ def decode_url(token):
     return base64.urlsafe_b64decode(token.encode()).decode()
 
 class handler(BaseHTTPRequestHandler):
+
     def do_GET(self):
-        parsed = urlparse(self.path)
-        query = parse_qs(parsed.query)
+        query = parse_qs(urlparse(self.path).query)
 
-        if query.get("link", [None])[0]:
-            self.handle_proxy(query)
+        if query.get("link"):
+            self.proxy_video(query)
         else:
-            self.handle_download(query)
+            self.fetch_video(query)
 
-    def handle_download(self, query):
+    def fetch_video(self, query):
         api_key = query.get("key", [None])[0]
         url = query.get("url", [None])[0]
 
         if not api_key or not is_key_valid(api_key):
-            self.send_json(401, {
-                "status": "error",
-                "message": "Invalid or expired API key"
-            })
-            return
+            return self.json(401, "Invalid or expired API key")
 
         if not url:
-            self.send_json(400, {
-                "status": "error",
-                "message": "Missing 'url' parameter"
-            })
-            return
+            return self.json(400, "Missing 'url' parameter")
 
         if not PROVIDER_URL:
-            self.send_json(500, {
-                "status": "error",
-                "message": "Api not configured"
-            })
-            return
+            return self.json(500, "Api not configured")
 
         try:
             headers = {
                 "User-Agent": generate_user_agent(),
-                "Accept": "*/*",
-                "Accept-Language": "en-US,en;q=0.9"
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://snapdownloader.com/tools/twitter-video-downloader",
+                "Origin": "https://snapdownloader.com"
             }
 
-            encoded_url = quote(url.strip(), safe="")
-            target_url = f"{PROVIDER_URL}?url={encoded_url}"
+            encoded = quote(url.strip(), safe="")
+            target = f"{PROVIDER_URL}?url={encoded}"
 
-            r = requests.get(target_url, headers=headers, timeout=20)
+            r = requests.get(
+                target,
+                headers=headers,
+                timeout=20,
+                allow_redirects=True
+            )
+
             r.raise_for_status()
 
             soup = BeautifulSoup(r.text, "html.parser")
@@ -85,44 +81,34 @@ class handler(BaseHTTPRequestHandler):
             videos = []
             for a in soup.find_all("a", href=True):
                 href = a["href"]
-                if href.lower().endswith(".mp4"):
+                if ".mp4" in href.lower():
                     videos.append(html.unescape(href))
 
             if not videos:
-                self.send_json(404, {
-                    "status": "error",
-                    "message": "Video not found or tweet is private"
-                })
-                return
+                return self.json(404, "Video not found or tweet is private")
 
-            best_video = videos[-1]
-
-            token = encode_url(best_video)
+            best = videos[-1]
+            token = encode_url(best)
 
             host = self.headers.get("host")
-            base_url = f"https://{host}"
+            proxy_url = f"https://{host}/api/twitter-download?link={token}"
 
-            self.send_json(200, {
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
                 "status": "success",
-                "download_url": f"{base_url}/api/twitter-download?link={token}",
+                "download_url": proxy_url,
                 "quality": "highest",
                 "provider": "UseSir",
                 "owner": "@UseSir / @OverShade"
-            })
+            }, indent=2).encode())
 
         except:
-            self.send_json(500, {
-                "status": "error",
-                "message": "failed to fetch twitter video"
-            })
+            self.json(500, "failed to fetch twitter video")
 
-    def handle_proxy(self, query):
+    def proxy_video(self, query):
         token = query.get("link", [None])[0]
-
-        if not token:
-            self.send_response(400)
-            self.end_headers()
-            return
 
         try:
             target = decode_url(token)
@@ -144,8 +130,11 @@ class handler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
 
-    def send_json(self, code, payload):
+    def json(self, code, message):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps(payload, indent=2).encode())
+        self.wfile.write(json.dumps({
+            "status": "error",
+            "message": message
+        }).encode())
