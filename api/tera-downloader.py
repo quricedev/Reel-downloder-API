@@ -10,7 +10,7 @@ PROVIDER_ORIGIN = os.environ.get("TERABOX_ORIGIN")
 PROVIDER_REFERER = os.environ.get("TERABOX_REFERER")
 PROVIDER_COOKIE = os.environ.get("TERABOX_COOKIE")
 
-KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "terakey.txt")
+KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "terakeys.txt")
 
 def is_key_valid(api_key):
     try:
