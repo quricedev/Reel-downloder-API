@@ -14,6 +14,12 @@ MAIN_API_ORIGIN = os.environ.get("MAIN_API_ORIGIN")
 
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "igpostkey.txt")
 
+QUALITY_PRIORITY = {
+    "1440p": 3,
+    "1080p": 2,
+    "720p": 1
+}
+
 
 def is_key_valid(api_key):
     try:
@@ -35,6 +41,24 @@ def encode_url(url):
 
 def decode_url(token):
     return base64.urlsafe_b64decode(token.encode()).decode()
+
+
+def detect_quality(url: str):
+    u = url.lower()
+    if "1440" in u:
+        return "1440p"
+    if "1080" in u:
+        return "1080p"
+    return "720p"
+
+
+def extract_media_id(url: str):
+    """
+    Extract a stable media identifier so different qualities
+    of the same post map together.
+    """
+    m = re.search(r"/([A-Za-z0-9_-]{15,})", url)
+    return m.group(1) if m else url.split("?")[0]
 
 
 class handler(BaseHTTPRequestHandler):
@@ -78,27 +102,37 @@ class handler(BaseHTTPRequestHandler):
 
             soup = BeautifulSoup(r.text, "html.parser")
 
-            media_links = set()
+            grouped = {}
+
             for a in soup.find_all("a", href=True):
                 href = html.unescape(a["href"])
-                if re.search(
-                    r"(cdninstagram|\.mp4|\.jpg|\.jpeg|\.png|\.webp)",
-                    href,
-                    re.I
-                ):
-                    media_links.add(href)
+                if not re.search(r"(cdninstagram|\.mp4|\.jpg|\.jpeg|\.png|\.webp)", href, re.I):
+                    continue
 
-            if not media_links:
+                media_id = extract_media_id(href)
+                quality = detect_quality(href)
+                priority = QUALITY_PRIORITY[quality]
+
+                existing = grouped.get(media_id)
+                if not existing or priority > existing["priority"]:
+                    grouped[media_id] = {
+                        "url": href,
+                        "quality": quality,
+                        "priority": priority
+                    }
+
+            if not grouped:
                 return self.send_json(404, "Media not found or post is private")
 
             host = self.headers.get("host")
             results = []
 
-            for i, media in enumerate(media_links, start=1):
-                token = encode_url(media)
+            for idx, item in enumerate(grouped.values(), start=1):
+                token = encode_url(item["url"])
                 results.append({
-                    "index": i,
-                    "type": "video" if ".mp4" in media.lower() else "image",
+                    "index": idx,
+                    "type": "video" if ".mp4" in item["url"].lower() else "image",
+                    "quality": item["quality"],
                     "download_url": f"https://{host}/api/ig-post?link={token}"
                 })
 
