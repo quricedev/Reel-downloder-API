@@ -1,6 +1,3 @@
-bot:30/12/2026
-sudeepbaby:30/12/2100
+sudeepbaby:30/12/2030
 zeus:30/12/2100
-usesirbot:30/12/3000
-PRAVEENNIGGA:26/01/2026
-test7:26/12/2025
+pvt:30/12/2030
