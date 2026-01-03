@@ -14,6 +14,7 @@ MAIN_API_ORIGIN = os.environ.get("MAIN_API_ORIGIN")
 
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "igpostkey.txt")
 
+
 def is_key_valid(api_key):
     try:
         with open(KEYS_FILE, "r") as f:
@@ -28,17 +29,19 @@ def is_key_valid(api_key):
         pass
     return False
 
+
 def encode_url(url):
     return base64.urlsafe_b64encode(url.encode()).decode()
 
+
 def decode_url(token):
     return base64.urlsafe_b64decode(token.encode()).decode()
+
 
 class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         query = parse_qs(urlparse(self.path).query)
-
         if query.get("link"):
             self.proxy_media(query)
         else:
@@ -69,24 +72,36 @@ class handler(BaseHTTPRequestHandler):
             encoded = quote(post_url.strip(), safe="")
             target = f"{IG_POST_PROVIDER}?url={encoded}"
 
-            r = requests.get(
-                target,
-                headers=headers,
-                timeout=20,
-                allow_redirects=True
-            )
+            r = requests.get(target, headers=headers, timeout=20)
             r.raise_for_status()
 
             soup = BeautifulSoup(r.text, "html.parser")
 
             media_links = []
+            seen = set()
+
             for a in soup.find_all("a", href=True):
-                href = a["href"]
-                if any(ext in href.lower() for ext in [".mp4", ".jpg", ".jpeg", ".png"]):
-                    media_links.append(html.unescape(href))
+                href = html.unescape(a["href"])
+
+                # ✅ FILTER OUT PROFILE PICTURES
+                if any(x in href for x in [
+                    "profile_pic",
+                    "profile_pic_url",
+                    "t51.2885-19"
+                ]):
+                    continue
+
+                # ✅ ACCEPT ONLY REAL POST MEDIA
+                if (
+                    ("scontent.cdninstagram.com" in href)
+                    and (href.endswith(".mp4") or href.endswith(".jpg") or href.endswith(".jpeg") or href.endswith(".png"))
+                ):
+                    if href not in seen:
+                        seen.add(href)
+                        media_links.append(href)
 
             if not media_links:
-                return self.send_json(404, "Media not found or post is private")
+                return self.send_json(404, "Post media not found or post is private")
 
             host = self.headers.get("host")
             results = []
@@ -95,7 +110,7 @@ class handler(BaseHTTPRequestHandler):
                 token = encode_url(media)
                 results.append({
                     "index": i,
-                    "type": "video" if media.lower().endswith(".mp4") else "image",
+                    "type": "video" if media.endswith(".mp4") else "image",
                     "download_url": f"https://{host}/api/ig-post?link={token}"
                 })
 
