@@ -2,6 +2,7 @@ import os
 import json
 import html
 import base64
+import re
 import requests
 from bs4 import BeautifulSoup
 from http.server import BaseHTTPRequestHandler
@@ -65,32 +66,31 @@ class handler(BaseHTTPRequestHandler):
                 "Referer": MAIN_API_ORIGIN
             }
 
-            encoded = quote(post_url.strip(), safe="")
-            target = f"{IG_POST_PROVIDER}?url={encoded}"
-
+            target = f"{IG_POST_PROVIDER}?url={quote(post_url.strip(), safe='')}"
             r = requests.get(target, headers=headers, timeout=20)
             r.raise_for_status()
 
             soup = BeautifulSoup(r.text, "html.parser")
+            scripts = soup.find_all("script")
+
             media_links = set()
 
-            for video in soup.find_all("video"):
-                poster = video.get("poster")
-                if poster:
-                    media_links.add(html.unescape(poster))
-                for src in video.find_all("source"):
-                    if src.get("src"):
-                        media_links.add(html.unescape(src["src"]))
+            for script in scripts:
+                text = script.string or ""
+                if "cdninstagram" not in text:
+                    continue
 
-            for img in soup.find_all("img"):
-                src = img.get("src") or img.get("data-src")
-                if src and any(x in src.lower() for x in ["cdninstagram", "scontent"]):
-                    media_links.add(html.unescape(src))
+                urls = re.findall(
+                    r'https:\\/\\/[^"]+cdninstagram[^"]+',
+                    text
+                )
 
-            media_links = [
-                m for m in media_links
-                if not any(x in m.lower() for x in ["profile", "avatar", "logo"])
-            ]
+                for u in urls:
+                    clean = html.unescape(u.replace("\\/", "/"))
+                    if any(x in clean.lower() for x in ["profile", "avatar"]):
+                        continue
+                    if any(ext in clean.lower() for ext in [".mp4", ".jpg", ".jpeg", ".png"]):
+                        media_links.add(clean)
 
             if not media_links:
                 return self.send_json(404, "Media not found or post is private")
@@ -98,7 +98,7 @@ class handler(BaseHTTPRequestHandler):
             host = self.headers.get("host")
             results = []
 
-            for i, media in enumerate(media_links, start=1):
+            for i, media in enumerate(sorted(media_links), start=1):
                 token = encode_url(media)
                 results.append({
                     "index": i,
