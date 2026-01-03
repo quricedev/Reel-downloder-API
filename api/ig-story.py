@@ -50,10 +50,6 @@ def detect_quality(url: str):
 
 
 def extract_story_id(url: str):
-    """
-    Extract a stable identifier so multiple qualities
-    of the same story are grouped together.
-    """
     m = re.search(r"/([A-Za-z0-9_-]{15,})", url)
     return m.group(1) if m else url.split("?")[0]
 
