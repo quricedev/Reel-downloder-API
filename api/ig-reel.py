@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 PROVIDER_URL = os.environ.get("PROVIDER_URL")
-KEYS_FILE = "keys.txt"
+KEYS_FILE = "Igreelskeys.txt"
 
 def is_key_valid(api_key):
     try:
