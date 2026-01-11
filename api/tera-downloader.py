@@ -80,8 +80,14 @@ class handler(BaseHTTPRequestHandler):
             })
 
         try:
-            r = requests.get(
-                f"{PROVIDER_URL}?url={url}",
+            r = requests.post(
+                PROVIDER_URL,
+                json={"url": url},
+                headers={
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                    "user-agent": "Mozilla/5.0"
+                },
                 timeout=30
             )
 
@@ -90,7 +96,7 @@ class handler(BaseHTTPRequestHandler):
 
             files = data.get("list", [])
             if not files:
-                raise Exception()
+                raise Exception("no_files")
 
             host = self.headers.get("host")
             path = urlparse(self.path).path
