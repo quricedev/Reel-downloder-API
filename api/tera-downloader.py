@@ -1,26 +1,34 @@
 import os
 import json
+import base64
 import requests
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
 PROVIDER_URL = os.environ.get("TERABOX_PROVIDER")
-PROVIDER_ORIGIN = os.environ.get("TERABOX_ORIGIN")
-PROVIDER_REFERER = os.environ.get("TERABOX_REFERER")
-PROVIDER_COOKIE = os.environ.get("TERABOX_COOKIE")
 
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "terakeys.txt")
+MASTER_KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "masterkeys.txt")
+
+
+def is_master_key(api_key):
+    try:
+        with open(MASTER_KEYS_FILE, "r") as f:
+            return api_key in [x.strip() for x in f if x.strip()]
+    except:
+        return False
 
 
 def is_key_valid(api_key):
+    if is_master_key(api_key):
+        return True
     try:
         with open(KEYS_FILE, "r") as f:
             for line in f:
-                line = line.strip()
                 if ":" not in line:
                     continue
-                key, expiry = line.split(":", 1)
+                key, expiry = line.strip().split(":", 1)
                 if key == api_key:
                     return datetime.utcnow() <= datetime.strptime(expiry, "%d/%m/%Y")
     except:
@@ -28,10 +36,28 @@ def is_key_valid(api_key):
     return False
 
 
+def encode_url(url):
+    return base64.urlsafe_b64encode(url.encode()).decode()
+
+
+def decode_url(token):
+    return base64.urlsafe_b64decode(token.encode()).decode()
+
+
+def proxy(url, host, path):
+    if not url:
+        return None
+    return f"https://{host}{path}?link={encode_url(url)}"
+
+
 class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         query = parse_qs(urlparse(self.path).query)
+
+        if query.get("link"):
+            return self.proxy_media(query)
+
         api_key = query.get("key", [None])[0]
         url = query.get("url", [None])[0]
 
@@ -47,68 +73,88 @@ class handler(BaseHTTPRequestHandler):
                 "message": "Missing 'url' parameter"
             })
 
-        if not all([PROVIDER_URL, PROVIDER_ORIGIN, PROVIDER_REFERER, PROVIDER_COOKIE]):
+        if not PROVIDER_URL:
             return self.respond(500, {
                 "status": "error",
                 "message": "Api not configured"
             })
 
         try:
-            headers = {
-                "accept": "*/*",
-                "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
-                "origin": PROVIDER_ORIGIN,
-                "referer": PROVIDER_REFERER,
-                "user-agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/143.0.0.0 Safari/537.36"
-                ),
-                "sec-fetch-site": "same-origin",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-dest": "empty",
-                "cookie": PROVIDER_COOKIE
-            }
-
-            files = {
-                "url": (None, url)
-            }
-
-            r = requests.post(
-                PROVIDER_URL,
-                headers=headers,
-                files=files,
+            r = requests.get(
+                f"{PROVIDER_URL}?url={url}",
                 timeout=30
             )
 
-            if r.status_code != 200:
-                raise Exception("provider_http_error")
+            r.raise_for_status()
+            data = r.json()
 
-            try:
-                data = r.json()
-            except:
-                raise Exception("invalid_json")
+            files = data.get("list", [])
+            if not files:
+                raise Exception()
 
-            if not data or isinstance(data, dict) and data.get("status") in ["error", "fail"]:
-                raise Exception("provider_rejected")
+            host = self.headers.get("host")
+            path = urlparse(self.path).path
 
-            return self.respond(200, {
+            output = []
+            for item in files:
+                output.append({
+                    "fs_id": item.get("fs_id"),
+                    "name": item.get("name"),
+                    "size": item.get("size"),
+                    "size_formatted": item.get("size_formatted"),
+                    "type": item.get("type"),
+                    "duration": item.get("duration"),
+                    "quality": item.get("quality"),
+                    "download_link": proxy(item.get("download_link"), host, path),
+                    "fast_download_link": proxy(item.get("fast_download_link"), host, path),
+                    "stream_url": proxy(item.get("stream_url"), host, path),
+                    "fast_stream_url": {
+                        q: proxy(u, host, path)
+                        for q, u in (item.get("fast_stream_url") or {}).items()
+                    },
+                    "subtitle_url": proxy(item.get("subtitle_url"), host, path),
+                    "thumbnail": proxy(item.get("thumbnail"), host, path),
+                    "folder": item.get("folder")
+                })
+
+            self.respond(200, {
                 "status": "success",
-                "data": data,
+                "total_files": len(output),
+                "files": output,
                 "provider": "UseSir",
                 "owner": "@UseSir / @OverShade"
             })
 
-        except Exception as e:
-            return self.respond(500, {
+        except:
+            self.respond(500, {
                 "status": "error",
                 "message": "failed to fetch terabox data"
             })
+
+    def proxy_media(self, query):
+        try:
+            target = decode_url(query.get("link")[0])
+            r = requests.get(target, stream=True, timeout=30)
+            r.raise_for_status()
+
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                r.headers.get("Content-Type", "application/octet-stream")
+            )
+            self.send_header("Content-Disposition", "inline")
+            self.end_headers()
+
+            for chunk in r.iter_content(8192):
+                if chunk:
+                    self.wfile.write(chunk)
+
+        except:
+            self.send_response(500)
+            self.end_headers()
 
     def respond(self, code, payload):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(
-            json.dumps(payload, ensure_ascii=False).encode()
-                    )
+        self.wfile.write(json.dumps(payload, indent=2).encode())
