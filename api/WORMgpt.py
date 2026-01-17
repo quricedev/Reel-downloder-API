@@ -127,9 +127,9 @@ class handler(BaseHTTPRequestHandler):
                 "owner": "@UseSir / @OverShade"
             }, indent=2).encode())
 
-        except:
-            self.error(500, "Failed to generate response")
-
+        except Exception as e:
+            self.error(500, str(e))
+            
     def error(self, code, message):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
